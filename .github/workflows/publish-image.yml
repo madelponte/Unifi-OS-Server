@@ -1,0 +1,149 @@
+name: Extract and publish UniFi OS Server
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - installer-url.txt
+  workflow_dispatch:
+    inputs:
+      installer_url:
+        description: Optional x86-64 installer URL (defaults to installer-url.txt)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-unifi-os-server-amd64
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve installer URL
+        id: installer
+        env:
+          MANUAL_URL: ${{ inputs.installer_url }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "$MANUAL_URL" ]]; then
+            url="$MANUAL_URL"
+          else
+            mapfile -t urls < <(grep -Ev '^[[:space:]]*(#|$)' installer-url.txt)
+            if [[ "${#urls[@]}" -ne 1 ]]; then
+              echo "installer-url.txt must contain exactly one non-comment URL" >&2
+              exit 1
+            fi
+            url="${urls[0]}"
+          fi
+
+          if [[ ! "$url" =~ ^https://fw-download\.ubnt\.com/data/unifi-os-server/.*linux-x64.*-x64$ ]]; then
+            echo "Expected an official fw-download.ubnt.com x86-64 installer URL" >&2
+            exit 1
+          fi
+
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Download official installer
+        env:
+          INSTALLER_URL: ${{ steps.installer.outputs.url }}
+        run: |
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output unifi-os-server-installer \
+            "$INSTALLER_URL"
+          chmod 0755 unifi-os-server-installer
+
+      - name: Read version and extract embedded image
+        id: image
+        run: |
+          set -euo pipefail
+
+          version="$(./unifi-os-server-installer --version)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Installer returned an invalid version: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          # Python's zipfile handles the executable prefix without unzip's
+          # misleading "extra bytes at beginning" warning/non-zero exit code.
+          python3 - <<'PY'
+          import shutil
+          import zipfile
+
+          with zipfile.ZipFile("unifi-os-server-installer") as archive:
+              member = archive.getinfo("image.tar")
+              if member.file_size < 100_000_000:
+                  raise SystemExit("embedded image.tar is unexpectedly small")
+              with archive.open(member) as source, open("image.tar", "wb") as target:
+                  shutil.copyfileobj(source, target, length=1024 * 1024)
+          PY
+
+          rm unifi-os-server-installer
+
+          load_output="$(docker load --input image.tar)"
+          printf '%s\n' "$load_output"
+          source_image="$(sed -n 's/^Loaded image: //p' <<< "$load_output" | tail -n 1)"
+          if [[ -z "$source_image" ]]; then
+            echo "Could not determine the loaded image name" >&2
+            exit 1
+          fi
+
+          architecture="$(docker image inspect "$source_image" --format '{{.Architecture}}')"
+          if [[ "$architecture" != amd64 ]]; then
+            echo "Expected amd64 image, got $architecture" >&2
+            exit 1
+          fi
+
+          echo "source=$source_image" >> "$GITHUB_OUTPUT"
+          rm image.tar
+
+      - name: Build Docker-compatible image
+        env:
+          SOURCE_IMAGE: ${{ steps.image.outputs.source }}
+          VERSION: ${{ steps.image.outputs.version }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker build \
+            --build-arg "BASE_IMAGE=$SOURCE_IMAGE" \
+            --build-arg "APP_VERSION=$VERSION" \
+            --build-arg "VCS_REF=$GITHUB_SHA" \
+            --tag "$image:$VERSION" \
+            --tag "$image:latest" \
+            .
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+
+      - name: Verify built image
+        env:
+          VERSION: ${{ steps.image.outputs.version }}
+        run: |
+          test "$(docker image inspect "$IMAGE:$VERSION" --format '{{.Architecture}}')" = amd64
+          docker run --rm --entrypoint bash "$IMAGE:$VERSION" \
+            -c 'test -x /root/uos-entrypoint.sh && bash -n /usr/local/sbin/docker-entrypoint.sh'
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        env:
+          VERSION: ${{ steps.image.outputs.version }}
+        run: |
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:latest"
+          echo "Published $IMAGE:$VERSION and $IMAGE:latest" >> "$GITHUB_STEP_SUMMARY"

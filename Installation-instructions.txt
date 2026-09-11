@@ -1,0 +1,38 @@
+
+
+    Refresh package list and install required packages: sudo apt-get update && sudo apt-get install podman slirp4netns.
+    Obtain the UniFi OS Server download link address from Releases, or the Download page by right clicking the download and selecting copy link address. It should look something like this: https://fw-download.ubnt.com/data/unifi-os-server/8b93-linux-x64-4.2.23-158fa00b-6b2c-4cd8-94ea-e92bc4a81369.23-x6
+    Current latest URL that we care about is https://fw-download.ubnt.com/data/unifi-os-server/5172-linux-x64-5.1.42-12e9e3cf-8f8b-4e54-928c-76b80a10c8a4.42-x64
+    Download the installer for your architecture using curl or wget for the URL in (2).
+        curl: curl -O <uos_server_download_link>
+        wget: wget <uos_server_download_link>
+    Make the installer executable.
+    chmod +x <local_path_to_uos_server_download>
+    Run the installer.
+    sudo <local_path_to_uos_server_download>
+    (Optional) Enable Remote Management: Once installed, create a UI Account (or sign in with an existing one) to enable remote management through Site Manager.
+    Adopt Devices: Review UniFi Device Adoption for detailed instructions on adding UniFi devices like APs and switches to your deployment.
+
+Note: If you’re migrating from the UniFi Network Server to UniFi OS Server, make sure to close the Network Server before installing UniFi OS Server.
+
+Note: Do not clone VMs except for high availability or failover installations. Cloned VMs will use the same remote access tokens for Site Manager and Fabrics, leading to unexpected behavior. We recommend creating new installations as needed each time.
+
+Other Helpful Commands
+
+    Stop UniFi OS Server: sudo systemctl stop uosserver
+    Start UniFi OS Server: sudo systemctl start uosserver
+    Disable Automatic Starting at System Boot: sudo systemctl disable uosserver
+    Enable Automatic Starting at System Boot: sudo systemctl enable uosserver
+
+Updating UniFi OS Server
+
+Your UniFi OS Server and associated UniFi applications can be updated from the Update Manager on Site Manager, or directly from the local Control Plan settings. See UniFi Updates for more information.
+Migrating From Network Server to UniFi OS Server
+
+    Obtain a backup from your UniFi Network Server following the instructions here.
+    Close the Network Server before installing UniFi OS Server.
+    Follow the instructions above in Installing UniFi OS Server according to your operating system.
+        On macOS and Windows, the installer will automatically detect and offer to migrate your existing Network Server setup (if installed in the default location).
+    On Linux, or if auto-migration doesn’t occur, you can manually migrate by installing UniFi OS Server and using the Site Export tool. See UniFi Backups and Migration to learn more.
+
+Note: Captive portals will be served on port 8444, changed from port 8843 on Network Server. This port will serve the certificate configured in the UniFi OS Console settings, or if TLS is not configured, this port will be served directly from UniFI Network.

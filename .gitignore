@@ -1,0 +1,10 @@
+# Local deployment configuration and runtime data.
+/compose.yml
+/.env
+/data/
+
+# Downloaded Ubiquiti installers and extracted container archives are large.
+/*-linux-x64-*-x64
+/*-linux-arm64-*-arm64
+/unifi-os-server-installer
+/image.tar

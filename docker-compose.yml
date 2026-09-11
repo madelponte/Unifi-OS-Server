@@ -1,0 +1,63 @@
+services:
+  unifi-os-server:
+    image: ghcr.io/madelponte/unifi-os-server:latest
+    platform: linux/amd64
+    container_name: unifi-os-server
+    restart: unless-stopped
+    stop_signal: SIGRTMIN+3
+    stop_grace_period: 2m
+
+    # UniFi OS runs its components as systemd services.
+    cgroup: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    extra_hosts:
+      - host.docker.internal:host-gateway
+      - host.containers.internal:host-gateway
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      # Set this to the hostname or LAN IP that adopted devices can reach.
+      UOS_SYSTEM_IP: ${UOS_SYSTEM_IP:-}
+    tmpfs:
+      - /run:exec
+      - /run/lock
+      - /tmp:exec
+      - /var/lib/journal
+      - /var/opt/unifi/tmp:size=64m
+    healthcheck:
+      test: [CMD, curl, --fail, http://127.0.0.1/api/ping]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 2m
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - ./data/persistent:/persistent
+      - ./data/var-log:/var/log
+      - ./data/data:/data
+      - ./data/srv:/srv
+      - ./data/var-lib-unifi:/var/lib/unifi
+      - ./data/var-lib-mongodb:/var/lib/mongodb
+      - ./data/etc-rabbitmq-ssl:/etc/rabbitmq/ssl
+    ports:
+      # UniFi OS web interface: https://HOST:11443
+      - 11443:443
+
+      # Device communication, adoption, and discovery.
+      - 8080:8080
+      - 3478:3478/udp
+      - 10003:10003/udp
+
+      # Optional UniFi services. Uncomment those you use.
+      # - 5005:5005 # RTP control
+      # - 5514:5514/udp # Remote syslog
+      # - 5671:5671 # AMQPS
+      # - 6789:6789 # Mobile speed test
+      # - 8444:8444 # Secure hotspot portal
+      # - 8880:8880 # Hotspot redirect
+      # - 8881:8881 # Hotspot redirect
+      # - 8882:8882 # Hotspot redirect
+      # - 9543:9543 # Identity Hub
+      # - 127.0.0.1:11084:11084 # Site supervisor; do not expose publicly
+      # - 28082:28082 # Device support-file downloads
