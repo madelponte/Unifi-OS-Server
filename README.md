@@ -35,9 +35,11 @@ The workflow uses the built-in `GITHUB_TOKEN`; no registry secret is required. I
 Create an `.env` file with the hostname or LAN IP that adopted devices can reach:
 
 ```dotenv
-UOS_SYSTEM_IP=192.0.2.10
+UOS_SYSTEM_IP=192.168.1.10
 TZ=Etc/UTC
 ```
+
+`UOS_SYSTEM_IP` is required. Use the Docker host's LAN IP or a hostname that resolves to it from the device network—not the container's private bridge address.
 
 Create the storage directories and start the server:
 
@@ -65,6 +67,26 @@ The generic Compose file enables:
 - `11443/tcp` — UniFi OS web interface (mapped to container port `443`)
 - `8080/tcp` — device/application communication and inform
 - `3478/udp` — STUN and remote-management communication
-- `10003/udp` — discovery
+- `10001/udp` — Network device discovery during adoption
+- `10003/udp` — UniFi OS Server discovery
 
-Additional hotspot, Identity Hub, AMQPS, syslog, speed-test, and support-file ports are documented as commented mappings in `docker-compose.yml`.
+Additional hotspot, Identity Hub, AMQPS, syslog, speed-test, L2 discovery, client-fingerprinting, and support-file ports are documented as commented mappings in `docker-compose.yml`.
+
+### Device adoption troubleshooting
+
+UniFi Network still uses TCP port `8080` for the inform protocol. For same-VLAN automatic discovery, Ubiquiti also documents UDP port `10001`. UniFi OS Server adds UDP port `10003`, so this Compose file publishes both discovery ports.
+
+If a device does not appear automatically—or appears but remains stuck while adopting:
+
+1. Confirm `UOS_SYSTEM_IP` is the Docker host's reachable LAN IP or hostname.
+2. Confirm host and inter-VLAN firewalls allow `8080/tcp`, `3478/udp`, `10001/udp`, and `10003/udp`.
+3. From the device network, verify that the Docker host is reachable on TCP 8080.
+4. For Layer 3 adoption, SSH to the factory-reset device and run:
+
+   ```text
+   set-inform http://<UOS_SYSTEM_IP>:8080/inform
+   ```
+
+   Ubiquiti notes that the command may need to be run a second time after the device appears in UniFi Network.
+
+The official Linux installer also deploys a host-side discovery helper for its rootless Podman network. It is not involved in direct Layer 3 inform traffic on TCP 8080. Publishing the container's `10001/udp` listener restores the legacy Network discovery path for Docker, but UDP broadcast discovery can still be unreliable across Docker bridges or VLAN boundaries. If manual `set-inform` works while automatic discovery does not, the next step would be a host or macvlan networking option rather than adding more TCP port mappings.
